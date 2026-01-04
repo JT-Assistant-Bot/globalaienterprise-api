@@ -1,51 +1,40 @@
-# main_api.py
-
 from flask import Flask, request, jsonify
-import requests
-import hashlib
-import time
 
-from auth import validate_request, AuthError
+from enforcement import check_and_increment
+from webhook import handle_gumroad_webhook
 
 app = Flask(__name__)
 
-
+# ================================
+# 1. PAID API MONITOR ENDPOINT
+# ================================
 @app.route("/monitor/check", methods=["GET"])
 def monitor_check():
-    try:
-        # Enforce API key + rate limit
-        validate_request(request.headers)
+    api_key = request.headers.get("X-API-Key")
 
-        url = request.args.get("url")
-        if not url:
-            return jsonify({"error": "Missing url parameter"}), 400
+    if not api_key:
+        return jsonify({"error": "API key missing"}), 401
 
-        start_time = time.time()
+    if not check_and_increment(api_key):
+        return jsonify({"error": "API key missing or invalid"}), 401
 
-        response = requests.get(url, timeout=5)
+    return jsonify({"status": "ok"}), 200
 
-        response_time_ms = int((time.time() - start_time) * 1000)
-        content_hash = hashlib.sha1(response.content).hexdigest()
 
-        return jsonify({
-            "url": url,
-            "status_code": response.status_code,
-            "reachable": True,
-            "response_time_ms": response_time_ms,
-            "content_hash": content_hash
-        })
+# ================================
+# 2. GUMROAD WEBHOOK ENDPOINT
+# ================================
+@app.route("/webhook/gumroad", methods=["POST"])
+def gumroad_webhook():
+    return handle_gumroad_webhook()
 
-    except AuthError as e:
-        return jsonify({"error": str(e)}), 401
 
-    except requests.exceptions.RequestException:
-        return jsonify({
-            "url": request.args.get("url"),
-            "reachable": False
-        }), 200
-
-    except Exception:
-        return jsonify({"error": "Internal server error"}), 500
+# ================================
+# 3. HEALTH CHECK (OPTIONAL)
+# ================================
+@app.route("/", methods=["GET"])
+def health():
+    return jsonify({"status": "running"}), 200
 
 
 if __name__ == "__main__":
