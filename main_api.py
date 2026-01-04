@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 
 from enforcement import check_and_increment
 from webhook import handle_gumroad_webhook
+from keys import get_key
 
 app = Flask(__name__)
 
@@ -30,7 +31,30 @@ def gumroad_webhook():
 
 
 # ================================
-# 3. HEALTH CHECK (OPTIONAL)
+# 3. API KEY RETRIEVAL ENDPOINT
+# ================================
+@app.route("/retrieve-key", methods=["POST"])
+def retrieve_key():
+    data = request.json or {}
+    email = data.get("email")
+    license_key = data.get("license_key")
+
+    if not email or not license_key:
+        return jsonify({"error": "email and license_key required"}), 400
+
+    record = get_key(email, license_key)
+
+    if not record:
+        return jsonify({"error": "No key found"}), 404
+
+    return jsonify({
+        "api_key": record["api_key"],
+        "credits": record["credits"]
+    }), 200
+
+
+# ================================
+# 4. HEALTH CHECK
 # ================================
 @app.route("/", methods=["GET"])
 def health():
