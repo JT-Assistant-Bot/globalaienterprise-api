@@ -1,48 +1,57 @@
-# keys.py
+import time
+import threading
 
-import uuid
+# In-memory key store
+# key -> { "credits": int, "created_at": float }
+API_KEYS = {}
 
-# In-memory store
-# key: (email, license_key)
-# value: { api_key, credits }
-ISSUED_KEYS = {}
+LOCK = threading.Lock()
 
-# Reverse lookup for enforcement
-# key: api_key
-# value: (email, license_key)
-API_KEY_INDEX = {}
+# -----------------------------
+# MANUAL TEST KEY (TEMPORARY)
+# -----------------------------
+# This key is ONLY for verification.
+# You can remove it after testing.
+API_KEYS["TEST-KEY-123"] = {
+    "credits": 1000,
+    "created_at": time.time(),
+}
 
+# -----------------------------
+# CORE FUNCTIONS
+# -----------------------------
 
-def create_paid_key(credits: int, email: str, license_key: str) -> str:
-    api_key = str(uuid.uuid4())
-
-    ISSUED_KEYS[(email, license_key)] = {
-        "api_key": api_key,
-        "credits": credits
-    }
-
-    API_KEY_INDEX[api_key] = (email, license_key)
-    return api_key
-
-
-def get_key(email: str, license_key: str):
-    return ISSUED_KEYS.get((email, license_key))
+def is_valid_key(api_key: str) -> bool:
+    with LOCK:
+        return api_key in API_KEYS
 
 
-def check_and_consume(api_key: str) -> bool:
-    """
-    Validates API key and consumes 1 credit.
-    """
-    identity = API_KEY_INDEX.get(api_key)
-    if not identity:
-        return False
+def has_credits(api_key: str) -> bool:
+    with LOCK:
+        return API_KEYS.get(api_key, {}).get("credits", 0) > 0
 
-    record = ISSUED_KEYS.get(identity)
-    if not record:
-        return False
 
-    if record["credits"] <= 0:
-        return False
+def consume_credit(api_key: str) -> bool:
+    with LOCK:
+        if api_key not in API_KEYS:
+            return False
+        if API_KEYS[api_key]["credits"] <= 0:
+            return False
+        API_KEYS[api_key]["credits"] -= 1
+        return True
 
-    record["credits"] -= 1
-    return True
+
+def grant_credits(api_key: str, amount: int):
+    with LOCK:
+        if api_key not in API_KEYS:
+            API_KEYS[api_key] = {
+                "credits": amount,
+                "created_at": time.time(),
+            }
+        else:
+            API_KEYS[api_key]["credits"] += amount
+
+
+def get_key_info(api_key: str):
+    with LOCK:
+        return API_KEYS.get(api_key)
