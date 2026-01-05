@@ -1,25 +1,21 @@
 import time
 import threading
 
-# In-memory key store
 # key -> { "credits": int, "created_at": float }
 API_KEYS = {}
-
 LOCK = threading.Lock()
 
-# -----------------------------
-# MANUAL TEST KEY (TEMPORARY)
-# -----------------------------
-# This key is ONLY for verification.
-# You can remove it after testing.
+# -------------------------------------------------
+# MANUAL TEST KEY (TEMPORARY — FOR VERIFICATION)
+# -------------------------------------------------
 API_KEYS["TEST-KEY-123"] = {
     "credits": 1000,
     "created_at": time.time(),
 }
 
-# -----------------------------
-# CORE FUNCTIONS
-# -----------------------------
+# -------------------------------------------------
+# CORE HELPERS
+# -------------------------------------------------
 
 def is_valid_key(api_key: str) -> bool:
     with LOCK:
@@ -40,6 +36,22 @@ def consume_credit(api_key: str) -> bool:
         API_KEYS[api_key]["credits"] -= 1
         return True
 
+
+# -------------------------------------------------
+# BACKWARD-COMPATIBILITY FUNCTION (CRITICAL)
+# -------------------------------------------------
+# enforcement.py depends on this name
+def check_and_consume(api_key: str) -> bool:
+    if not is_valid_key(api_key):
+        return False
+    if not has_credits(api_key):
+        return False
+    return consume_credit(api_key)
+
+
+# -------------------------------------------------
+# GUMROAD / CREDIT GRANTING
+# -------------------------------------------------
 
 def grant_credits(api_key: str, amount: int):
     with LOCK:
