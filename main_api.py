@@ -3,7 +3,7 @@ from flask import Flask, request, jsonify
 from enforcement import check_and_increment
 from webhook import handle_gumroad_webhook
 from keys import get_key
-from shield import check_rate
+from shield import shield_response
 
 app = Flask(__name__)
 
@@ -60,37 +60,23 @@ def retrieve_key():
         {
             "api_key": record["api_key"],
             "credits": record["credits"]
-        },
-        200
-    )
+        }
+    ), 200
 
 
 # ================================
-# 5. RATE-LIMIT SHIELD ENDPOINT (NEW)
+# 5. SHIELD CHECK ENDPOINT (PAID)
 # ================================
-@app.route("/shield/check", methods=["POST"])
+@app.route("/shield/check", methods=["GET"])
 def shield_check():
-    api_key = request.headersget("X-API-Key")
+    api_key = request.headers.get("X-API-Key")
 
-    if not api_key:
-        return jsonify({"error": "API key missing"}), 401
-
-    if not check_and_increment(api_key):
-        return jsonify({"error": "API key missing or invalid"}), 401
-
-    data = request.json or {}
-    client_id = data.get("client_id")
-
-    if not client_id:
-        return jsonify({"error": "client_id required"}), 400
-
-    allowed = check_rate(client_id)
+    allowed, message = shield_response(api_key)
 
     if not allowed:
-        return jsonify(
-            {"decision": "block", "reason": "rate_limit_exceeded"},
-            429
-        )
+        # unpaid or rate-limited
+        status = 403 if "paid" in message.lower() else 429
+        return jsonify({"error": message}), status
 
     return jsonify({"decision": "allow"}), 200
 
