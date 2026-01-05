@@ -1,105 +1,89 @@
 from flask import Flask, request, jsonify
-from datetime import datetime
-
 from enforcement import check_and_increment
 
 app = Flask(__name__)
 
-# -------------------------
-# In-memory free usage tracker
-# -------------------------
-FREE_LIMIT_PER_DAY = 50
-_free_usage = {}  # { ip: { "date": "YYYY-MM-DD", "count": int } }
+# -----------------------------
+# CONFIG
+# -----------------------------
 
+PURCHASE_URL = "https://jathangkip.gumroad.com/l/vtagec"
+FREE_QUOTA = 50
 
-# -------------------------
-# Helpers
-# -------------------------
-def _today():
-    return datetime.utcnow().strftime("%Y-%m-%d")
+# -----------------------------
+# HEALTH
+# -----------------------------
 
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify({
+        "service": "GlobalAIEnterprise Shield",
+        "status": "online",
+        "docs": "See README for usage"
+    })
 
-def _get_client_ip():
-    return request.headers.get("X-Forwarded-For", request.remote_addr)
+# -----------------------------
+# SHIELD CHECK (PAID ACCESS)
+# -----------------------------
 
-
-# -------------------------
-# Health Check
-# -------------------------
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok"}), 200
-
-
-# -------------------------
-# FREE MACHINE ENDPOINT
-# -------------------------
-@app.route("/free/validate", methods=["GET"])
-def free_validate():
-    ip = _get_client_ip()
-    today = _today()
-
-    record = _free_usage.get(ip)
-
-    if not record or record["date"] != today:
-        record = {"date": today, "count": 0}
-        _free_usage[ip] = record
-
-    if record["count"] >= FREE_LIMIT_PER_DAY:
-        return (
-            jsonify(
-                {
-                    "error": "Free limit reached",
-                    "message": "Upgrade required to continue usage.",
-                    "upgrade_url": "https://jathangkip.gumroad.com/l/vtagec",
-                }
-            ),
-            402,
-        )
-
-    record["count"] += 1
-
-    return (
-        jsonify(
-            {
-                "status": "ok",
-                "remaining": FREE_LIMIT_PER_DAY - record["count"],
-            }
-        ),
-        200,
-    )
-
-
-# -------------------------
-# PAID SHIELD ENDPOINT
-# -------------------------
 @app.route("/shield/check", methods=["GET"])
 def shield_check():
     api_key = request.headers.get("X-API-Key")
+    decision = check_and_increment(api_key)
 
-    if not api_key:
-        return jsonify(
-            {
-                "error": "Missing API key",
-                "decision": "deny",
-            }
-        ), 403
+    if decision["allowed"]:
+        return jsonify({"decision": "allow"}), 200
 
-    allowed = check_and_increment(api_key)
+    return jsonify({
+        "decision": "deny",
+        "reason": decision["reason"],
+        "upgrade": PURCHASE_URL
+    }), 403
 
-    if not allowed:
-        return jsonify(
-            {
-                "error": "Access denied. This endpoint requires a paid API key.",
-                "decision": "deny",
-            }
-        ), 403
+# -----------------------------
+# FREE VALIDATION (DISCOVERY)
+# -----------------------------
 
-    return jsonify({"decision": "allow"}), 200
+@app.route("/free/validate", methods=["GET"])
+def free_validate():
+    api_key = request.headers.get("X-API-Key")
+
+    result = check_and_increment(
+        api_key=api_key,
+        free_only=True,
+        free_quota=FREE_QUOTA
+    )
+
+    if result["allowed"]:
+        return jsonify({
+            "status": "ok",
+            "remaining": result["remaining"]
+        }), 200
+
+    # Free quota exhausted → forced upgrade
+    return jsonify({
+        "error": "Free quota exhausted",
+        "message": "Upgrade required to continue",
+        "upgrade": PURCHASE_URL
+    }), 402
+
+# -----------------------------
+# FORCED UPGRADE ENDPOINT
+# -----------------------------
+
+@app.route("/upgrade", methods=["GET"])
+def upgrade():
+    return jsonify({
+        "error": "Payment required",
+        "message": "This API requires a paid key",
+        "benefit": "Unlimited access + enforcement + no rate limits",
+        "purchase": PURCHASE_URL
+    }), 402
 
 
-# -------------------------
-# App Entrypoint
-# -------------------------
+# -----------------------------
+# ENTRYPOINT
+# -----------------------------
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=8000)
