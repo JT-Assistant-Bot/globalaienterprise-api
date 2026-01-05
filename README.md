@@ -8,6 +8,14 @@ If the request is blocked, your API stops.
 
 No SDK. No setup. One HTTP call.
 
+🔒 **Paid Access Required**
+
+Purchase API access:
+https://jathangkip.gumroad.com/l/vtagec
+
+You will receive an API key immediately after purchase.
+Requests without a valid key are automatically blocked.
+
 ---
 
 ## Core Rule
