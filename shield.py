@@ -2,6 +2,7 @@
 
 import time
 from typing import Dict
+from keys import check_and_consume
 
 # ==============================
 # CONFIG (LOCKED)
@@ -10,19 +11,13 @@ from typing import Dict
 WINDOW_SECONDS = 60
 MAX_REQUESTS = 30
 
-# Temporary valid keys (manual monetization v1)
-# Replace / extend only after first payment
-VALID_API_KEYS = {
-    "PAID_KEY_001": "active",
-}
-
 PAYMENT_INSTRUCTION = (
     "Access denied. This endpoint requires a paid API key.\n"
-    "To obtain access, contact the operator and request a Shield API key."
+    "Purchase API credits to obtain access."
 )
 
 # ==============================
-# IN-MEMORY STATE
+# IN-MEMORY RATE STATE
 # ==============================
 
 # key: api_key
@@ -31,22 +26,32 @@ RATE_STATE: Dict[str, list] = {}
 
 
 # ==============================
-# CORE LOGIC
+# CORE SHIELD LOGIC
 # ==============================
 
-def check_shield(api_key: str) -> bool:
+def shield_response(api_key: str):
     """
-    Returns True if request is allowed.
-    Returns False if blocked (rate limit or unpaid).
+    Validates API key (paid) and enforces rate limit.
+    Does NOT consume credits.
     """
 
-    # 1. Hard block if no key
+    # 1. Missing key
     if not api_key:
-        return False
+        return False, PAYMENT_INSTRUCTION
 
-    # 2. Hard block if unpaid / invalid key
-    if api_key not in VALID_API_KEYS:
-        return False
+    # 2. Validate key by attempting a dry credit check
+    # We consume 1 credit and immediately restore it
+    # because shield is a gate, not a usage endpoint
+    valid = check_and_consume(api_key)
+    if not valid:
+        return False, PAYMENT_INSTRUCTION
+
+    # Restore consumed credit (undo)
+    # This is safe because keys.py is in-memory
+    from keys import API_KEY_INDEX, ISSUED_KEYS
+    identity = API_KEY_INDEX.get(api_key)
+    if identity:
+        ISSUED_KEYS[identity]["credits"] += 1
 
     now = time.time()
     record = RATE_STATE.get(api_key)
@@ -54,35 +59,19 @@ def check_shield(api_key: str) -> bool:
     # 3. First request
     if not record:
         RATE_STATE[api_key] = [1, now]
-        return True
+        return True, "OK"
 
     count, start = record
 
     # 4. Reset window
     if now - start > WINDOW_SECONDS:
         RATE_STATE[api_key] = [1, now]
-        return True
+        return True, "OK"
 
     # 5. Rate limit exceeded
     if count >= MAX_REQUESTS:
-        return False
+        return False, "Rate limit exceeded. Try again later."
 
     # 6. Increment within window
     RATE_STATE[api_key][0] += 1
-    return True
-
-
-def shield_response(api_key: str):
-    """
-    Unified helper for HTTP handlers.
-    Returns (allowed: bool, message: str)
-    """
-
-    allowed = check_shield(api_key)
-
-    if not allowed:
-        if not api_key or api_key not in VALID_API_KEYS:
-            return False, PAYMENT_INSTRUCTION
-        return False, "Rate limit exceeded. Try again later."
-
     return True, "OK"
